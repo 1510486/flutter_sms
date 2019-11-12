@@ -17,6 +17,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.UUID;
+import java.util.*;
 
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
@@ -32,7 +33,8 @@ import static io.flutter.plugin.common.PluginRegistry.RequestPermissionsResultLi
 @TargetApi(Build.VERSION_CODES.DONUT)
 class SmsSenderMethodHandler implements RequestPermissionsResultListener {
     private static final SmsManager sms = SmsManager.getDefault();
-    private final String[] permissionsList = new String[]{Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE};
+    private final String[] permissionsList = new String[] { Manifest.permission.SEND_SMS,
+            Manifest.permission.READ_PHONE_STATE };
     private MethodChannel.Result result;
     private String address;
     private String body;
@@ -40,7 +42,8 @@ class SmsSenderMethodHandler implements RequestPermissionsResultListener {
     private Integer subId;
     private final Registrar registrar;
 
-    SmsSenderMethodHandler(Registrar registrar, MethodChannel.Result result, String address, String body, int sentId, Integer subId) {
+    SmsSenderMethodHandler(Registrar registrar, MethodChannel.Result result, String address, String body, int sentId,
+            Integer subId) {
         this.registrar = registrar;
         this.result = result;
         this.address = address;
@@ -77,23 +80,7 @@ class SmsSenderMethodHandler implements RequestPermissionsResultListener {
 
     @TargetApi(Build.VERSION_CODES.KITKAT)
     private void sendSmsMessage() {
-        Intent sentIntent = new Intent("SMS_SENT");
-        sentIntent.putExtra("sentId", sentId);
-        PendingIntent sentPendingIntent = PendingIntent.getBroadcast(
-                registrar.context(),
-                0,
-                sentIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT
-        );
 
-        Intent deliveredIntent = new Intent("SMS_DELIVERED");
-        deliveredIntent.putExtra("sentId", sentId);
-        PendingIntent deliveredPendingIntent = PendingIntent.getBroadcast(
-                registrar.context(),
-                UUID.randomUUID().hashCode(),
-                deliveredIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT
-        );
         SmsManager sms;
         if (this.subId == null) {
             sms = SmsManager.getDefault();
@@ -105,7 +92,31 @@ class SmsSenderMethodHandler implements RequestPermissionsResultListener {
                 return;
             }
         }
-        sms.sendTextMessage(address, null, body, sentPendingIntent, deliveredPendingIntent);
+        ArrayList<String> parts = sms.divideMessage(body);
+
+        int numParts = parts.size();
+
+        ArrayList<PendingIntent> sentIntents = new ArrayList<PendingIntent>();
+        ArrayList<PendingIntent> deliveryIntents = new ArrayList<PendingIntent>();
+
+        for (int i = 0; i < numParts; i++) {
+            Intent sentIntent = new Intent("SMS_SENT");
+            sentIntent.putExtra("sentId", sentId);
+            PendingIntent sentPendingIntent = PendingIntent.getBroadcast(registrar.context(), 0, sentIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT);
+
+            Intent deliveredIntent = new Intent("SMS_DELIVERED");
+            deliveredIntent.putExtra("sentId", sentId);
+            PendingIntent deliveredPendingIntent = PendingIntent.getBroadcast(registrar.context(),
+                    UUID.randomUUID().hashCode(), deliveredIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+            sentIntents.add(sentPendingIntent);
+            deliveryIntents.add(deliveredPendingIntent);
+        }
+
+        // sms.sendTextMessage(address, null, body, sentPendingIntent,
+        // deliveredPendingIntent);
+        sms.sendMultipartTextMessage(address, null, parts, sentIntents, deliveryIntents);
         result.success(null);
     }
 }
@@ -132,7 +143,8 @@ class SmsSender implements MethodCallHandler {
             } else if (body == null) {
                 result.error("#02", "missing argument 'body'", null);
             } else {
-                SmsSenderMethodHandler handler = new SmsSenderMethodHandler(registrar, result, address, body, sentId, subId);
+                SmsSenderMethodHandler handler = new SmsSenderMethodHandler(registrar, result, address, body, sentId,
+                        subId);
                 this.registrar.addRequestPermissionsResultListener(handler);
                 handler.handle(this.permissions);
             }
